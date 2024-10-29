@@ -71,6 +71,7 @@ enum {
   UPDATE_PROGRESS,
   LOCATION_UPDATED,
   NOTIFICATION_ACTION_INVOKED,
+  USB_DEVICE_EVENT,
   LAST_SIGNAL
 };
 
@@ -278,6 +279,24 @@ xdp_portal_class_init (XdpPortalClass *klass)
                   G_TYPE_NONE, 3,
                   G_TYPE_STRING,
                   G_TYPE_STRING,
+                  G_TYPE_VARIANT);
+
+  /**
+   * XdpUsbSession::usb-device-event:
+   * @session: the [class@Portal]
+   * @parameter: the device event
+   *
+   * Emitted when a USB device event is received. This require to have
+   * a USB session started.
+   */
+  signals[USB_DEVICE_EVENT] =
+    g_signal_new ("usb-device-event",
+                  G_TYPE_FROM_CLASS (object_class),
+                  G_SIGNAL_RUN_CLEANUP | G_SIGNAL_NO_RECURSE | G_SIGNAL_NO_HOOKS,
+                  0,
+                  NULL, NULL,
+                  NULL,
+                  G_TYPE_NONE, 1,
                   G_TYPE_VARIANT);
 }
 

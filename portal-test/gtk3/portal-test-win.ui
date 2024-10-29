@@ -838,7 +838,62 @@
               </packing>
             </child>
 
-
+            <child>
+              <object class="GtkLabel">
+                <property name="visible">1</property>
+                <property name="halign">end</property>
+                <property name="label">USB Portal</property>
+              </object>
+              <packing>
+                <property name="left-attach">0</property>
+                <property name="top-attach">22</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkButton" id="usbportal_button">
+                <property name="visible">1</property>
+                <property name="halign">start</property>
+                <property name="label">Enumerate</property>
+                <signal name="clicked" handler="usb_enumerate"/>
+              </object>
+              <packing>
+                <property name="left-attach">1</property>
+                <property name="top-attach">22</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkBox">
+                <property name="visible">1</property>
+                <property name="hexpand">0</property>
+                <property name="orientation">horizontal</property>
+                <property name="spacing">6</property>
+                <child>
+                  <object class="GtkButton" id="usbportal_session_button">
+                    <property name="visible">1</property>
+                    <property name="halign">start</property>
+                    <property name="label">Start</property>
+                    <signal name="clicked" handler="usb_start_stop_session"/>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkLabel" id="usbportal_device_count">
+                    <property name="visible">1</property>
+                    <property name="halign">start</property>
+                  </object>
+                </child>
+                <child>
+                  <object class="GtkComboBoxText" id="usbportal_devices">
+                    <property name="visible">1</property>
+                    <property name="halign">start</property>
+                    <signal name="changed" handler="usb_device_selected_cb"/>
+                  </object>
+                </child>
+              </object>
+              <packing>
+                <property name="left-attach">2</property>
+                <property name="top-attach">22</property>
+              </packing>
+            </child>
           </object>
         </child>
       </object>

@@ -40,4 +40,5 @@
 #include <libportal/trash.h>
 #include <libportal/types.h>
 #include <libportal/updates.h>
+#include <libportal/usb.h>
 #include <libportal/wallpaper.h>

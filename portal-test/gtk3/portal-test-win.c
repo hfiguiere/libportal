@@ -62,6 +62,7 @@ struct _PortalTestWin
 
   XdpPortal *portal;
   XdpSession *session;
+  XdpUsbSession *usb_session;
 
   GNetworkMonitor *monitor;
   GProxyResolver *resolver;
@@ -93,6 +94,10 @@ struct _PortalTestWin
 
   GtkWidget *inputcapture_label;
   GtkWidget *inputcapture_toggle;
+
+  GtkWidget *usbportal_session_button;
+  GtkWidget *usbportal_device_count;
+  GtkWidget *usbportal_devices;
 
   GFileMonitor *update_monitor;
   GtkWidget *update_dialog;
@@ -1390,6 +1395,152 @@ set_wallpaper (PortalTestWin *win)
 }
 
 static void
+usb_show_device_count (PortalTestWin *win, GVariantIter *iter)
+{
+  g_autofree char *label = NULL;
+  gsize count = 0;
+
+  count = g_variant_iter_n_children (iter);
+  label = g_strdup_printf ("%ld devices", count);
+  gtk_label_set_label (GTK_LABEL (win->usbportal_device_count), label);
+}
+
+static void
+usb_device_acquire_completion (GObject *source, GAsyncResult *result, gpointer)
+{
+  XdpPortal *portal = XDP_PORTAL (source);
+  g_autoptr(GError) error = NULL;
+
+  char* object_path = xdp_portal_usb_acquire_devices_finish (portal, result, &error);
+
+  g_print("path = %s\n", object_path);
+}
+
+static void
+usb_device_selected_cb (GtkComboBoxText *combo, PortalTestWin *win)
+{
+  g_autofree char* active_text = gtk_combo_box_text_get_active_text (combo);
+  const char *active_id = gtk_combo_box_get_active_id (GTK_COMBO_BOX (combo));
+  g_print ("%s id = %s\n", active_text, active_id);
+  g_autoptr(XdpParent) parent = xdp_parent_new_gtk (GTK_WINDOW (win));
+  g_autoptr(GPtrArray) devices = g_ptr_array_new_with_free_func ((GDestroyNotify) xdp_usb_device_acquire_request_free);
+
+  XdpUsbDeviceAcquireRequest *device = xdp_usb_device_acquire_request_new (active_id, FALSE);
+  g_ptr_array_add (devices, device);
+
+  xdp_portal_usb_acquire_devices (win->portal, parent, devices, NULL, usb_device_acquire_completion, win);
+}
+
+static void
+usb_add_device_to_combo (PortalTestWin *win, const char *device_id, GVariant *props)
+{
+  g_autoptr(GVariant) properties = NULL;
+  const char *model_id = NULL;
+  const char *device_file = NULL;
+  g_variant_lookup (props, "device-file", "&s", &device_file);
+  if (!g_variant_lookup (props, "properties", "@a{sv}", &properties))
+    {
+      g_warning ("no properties");
+      return;
+    }
+  g_assert (properties);
+  if (!g_variant_lookup (properties, "ID_MODEL_FROM_DATABASE", "&s", &model_id))
+    g_variant_lookup (properties, "ID_MODEL_ENC", "&s", &model_id);
+
+  gtk_combo_box_text_append (
+    GTK_COMBO_BOX_TEXT (win->usbportal_devices),
+    device_id,
+    model_id
+  );
+  g_clear_pointer (&props, g_variant_unref);
+}
+
+static void
+usb_add_devices_to_combo (PortalTestWin *win, GVariantIter *iter)
+{
+  const char *device_id;
+  GVariant *props;
+  while (g_variant_iter_next (iter, "(&s&s@a{sv})", NULL, &device_id, &props))
+    {
+      usb_add_device_to_combo (win, device_id, props);
+    }
+}
+
+static void
+usb_enumerate (GtkButton *button,
+	       PortalTestWin *win)
+{
+  g_autoptr(GError) error = NULL;
+  g_autoptr(GVariant) devices = xdp_portal_usb_enumerate_devices (win->portal, &error);
+  if (devices)
+    {
+      g_autoptr(GVariantIter) iter = NULL;
+      g_variant_get (devices, "(a(sa{sv}))", &iter);
+
+      const char *device_id;
+      GVariant *props;
+      while (g_variant_iter_next (iter, "(&s@a{sv})", &device_id, &props))
+        {
+          usb_add_device_to_combo (win, device_id, props);
+        }
+      usb_show_device_count (win, iter);
+    }
+
+  if (error)
+    printf("error: %s\n", error->message);
+}
+
+static void
+usb_device_event (XdpUsbSession *session, GVariant* devices, PortalTestWin *win)
+{
+  g_autoptr(GVariantIter) iter = NULL;
+  g_variant_get (devices, "a(ssa{sv})", &iter);
+
+  usb_add_devices_to_combo (win, iter);
+  usb_show_device_count (win, iter);
+}
+
+static void
+usb_session_created (GObject *source,
+                     GAsyncResult *result,
+                     gpointer data)
+{
+  XdpPortal *portal = XDP_PORTAL (source);
+  PortalTestWin *win = data;
+  g_autoptr(GError) error = NULL;
+
+  g_autoptr(XdpUsbSession) session = xdp_portal_usb_create_session_finish (portal, result, &error);
+
+  if (session)
+    {
+      g_clear_object (&win->usb_session);
+      win->usb_session = g_steal_pointer (&session);
+      g_signal_connect (win->usb_session, "device-event", (GCallback)usb_device_event, win);
+
+      gtk_button_set_label (GTK_BUTTON (win->usbportal_session_button), "Stop");
+    }
+  gtk_widget_set_sensitive (win->usbportal_session_button, TRUE);
+}
+
+static void
+usb_start_stop_session (GtkButton *button,
+			PortalTestWin *win)
+{
+  gtk_widget_set_sensitive (win->usbportal_session_button, FALSE);
+  if (win->usb_session)
+    {
+      gtk_button_set_label (GTK_BUTTON (win->usbportal_session_button), "Start");
+      xdp_usb_session_close (win->usb_session);
+      g_clear_object (&win->usb_session);
+      gtk_widget_set_sensitive (win->usbportal_session_button, TRUE);
+    }
+  else
+    {
+      xdp_portal_usb_create_session (win->portal, NULL, usb_session_created, win);
+    }
+}
+
+static void
 portal_test_win_class_init (PortalTestWinClass *class)
 {
   GtkWidgetClass *widget_class = GTK_WIDGET_CLASS (class);
@@ -1413,6 +1564,9 @@ portal_test_win_class_init (PortalTestWinClass *class)
   gtk_widget_class_bind_template_callback (widget_class, reload_settings);
   gtk_widget_class_bind_template_callback (widget_class, request_background);
   gtk_widget_class_bind_template_callback (widget_class, set_wallpaper);
+  gtk_widget_class_bind_template_callback (widget_class, usb_enumerate);
+  gtk_widget_class_bind_template_callback (widget_class, usb_start_stop_session);
+  gtk_widget_class_bind_template_callback (widget_class, usb_device_selected_cb);
   gtk_widget_class_bind_template_child (widget_class, PortalTestWin, sandbox_status);
   gtk_widget_class_bind_template_child (widget_class, PortalTestWin, network_status);
   gtk_widget_class_bind_template_child (widget_class, PortalTestWin, monitor_name);
@@ -1444,6 +1598,9 @@ portal_test_win_class_init (PortalTestWinClass *class)
   gtk_widget_class_bind_template_child (widget_class, PortalTestWin, open_local_dir);
   gtk_widget_class_bind_template_child (widget_class, PortalTestWin, open_local_ask);
   gtk_widget_class_bind_template_child (widget_class, PortalTestWin, file_chooser_button);
+  gtk_widget_class_bind_template_child (widget_class, PortalTestWin, usbportal_session_button);
+  gtk_widget_class_bind_template_child (widget_class, PortalTestWin, usbportal_device_count);
+  gtk_widget_class_bind_template_child (widget_class, PortalTestWin, usbportal_devices);
 }
 
 GtkApplicationWindow *
